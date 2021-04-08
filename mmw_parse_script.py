@@ -1,20 +1,69 @@
+# ****************************************************************************
+# * (C) Copyright 2020, Texas Instruments Incorporated. - www.ti.com
+# ****************************************************************************
+# *
+# *  Redistribution and use in source and binary forms, with or without
+# *  modification, are permitted provided that the following conditions are
+# *  met:
+# *
+# *    Redistributions of source code must retain the above copyright notice,
+# *    this list of conditions and the following disclaimer.
+# *
+# *    Redistributions in binary form must reproduce the above copyright
+# *    notice, this list of conditions and the following disclaimer in the
+# *     documentation and/or other materials provided with the distribution.
+# *
+# *    Neither the name of Texas Instruments Incorporated nor the names of its
+# *    contributors may be used to endorse or promote products derived from
+# *    this software without specific prior written permission.
+# *
+# *  THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
+# *  "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED
+# *  PARTICULAR TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
+# *  A PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT  OWNER OR
+# *  CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL,
+# *  EXEMPLARY, ORCONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO,
+# *  PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR
+# *  PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF
+# *  LIABILITY, WHETHER IN CONTRACT,  STRICT LIABILITY, OR TORT (INCLUDING
+# *  NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
+# *  SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+# *
+# ****************************************************************************
+
+
+# ****************************************************************************
+# Sample mmW demo UART output parser script - should be invoked using python3
+#       ex: python3 mmw_demo_example_script.py <recorded_dat_file_from_Visualizer>.dat
+#
+# Notes:
+#   1. The parser_mmw_demo script will output the text version 
+#      of the captured files on stdio. User can redirect that output to a log file, if desired
+#   2. This example script also outputs the detected point cloud data in mmw_demo_output.csv 
+#      to showcase how to use the output of parser_one_mmw_demo_output_packet
+# ****************************************************************************
 import serial
 import time
 import numpy as np
-import pyqtgraph as pg
-from pyqtgraph.Qt import QtGui
+import os
+import sys
 import matplotlib.pyplot as plt
+# import the parser function 
+from parser_mmw_demo import parser_one_mmw_demo_output_packet
 
 # Change the configuration file name
 configFileName = 'xwr68xxconfig.cfg'
 
+# Constants
+maxBufferSize = 2**15;
 CLIport = {}
 Dataport = {}
 byteBuffer = np.zeros(2**15,dtype = 'uint8')
 byteBufferLength = 0;
-
-
-# ------------------------------------------------------------------
+maxBufferSize = 2**15;
+magicWord = [2, 1, 4, 3, 6, 5, 8, 7]
+# word array to convert 4 bytes to a 32 bit number
+word = [1, 2**8, 2**16, 2**24]
 
 # Function to configure the serial ports and send the data from
 # the configuration file to the radar
@@ -40,8 +89,6 @@ def serialConfig(configFileName):
         time.sleep(0.01)
         
     return CLIport, Dataport
-
-# ------------------------------------------------------------------
 
 # Function to parse the data inside the configuration file
 def parseConfigFile(configFileName):
@@ -93,36 +140,29 @@ def parseConfigFile(configFileName):
     configParameters["maxVelocity"] = 3e8 / (4 * startFreq * 1e9 * (idleTime + rampEndTime) * 1e-6 * numTxAnt)
     
     return configParameters
-   
-# ------------------------------------------------------------------
 
-# Funtion to read and parse the incoming data
+##################################################################################
+# USE parser_mmw_demo SCRIPT TO PARSE ABOVE INPUT FILES
+##################################################################################
 def readAndParseData14xx(Dataport, configParameters):
+    #load from serial
     global byteBuffer, byteBufferLength
-    
-    # Constants
-    OBJ_STRUCT_SIZE_BYTES = 12;
-    BYTE_VEC_ACC_MAX_SIZE = 2**15;
-    MMWDEMO_UART_MSG_DETECTED_POINTS = 1;
-    MMWDEMO_UART_MSG_RANGE_PROFILE   = 2;
-    maxBufferSize = 2**15;
-    magicWord = [2, 1, 4, 3, 6, 5, 8, 7]
-    
+
     # Initialize variables
     magicOK = 0 # Checks if magic number has been read
     dataOK = 0 # Checks if the data has been read correctly
     frameNumber = 0
     detObj = {}
-    
+
     readBuffer = Dataport.read(Dataport.in_waiting)
     byteVec = np.frombuffer(readBuffer, dtype = 'uint8')
     byteCount = len(byteVec)
-    
+
     # Check that the buffer is not full, and then add the data to the buffer
     if (byteBufferLength + byteCount) < maxBufferSize:
         byteBuffer[byteBufferLength:byteBufferLength + byteCount] = byteVec[:byteCount]
         byteBufferLength = byteBufferLength + byteCount
-        
+    
     # Check that the buffer has some data
     if byteBufferLength > 16:
         
@@ -135,7 +175,7 @@ def readAndParseData14xx(Dataport, configParameters):
             check = byteBuffer[loc:loc+8]
             if np.all(check == magicWord):
                 startIdx.append(loc)
-               
+
         # Check that startIdx is not empty
         if startIdx:
             
@@ -148,133 +188,99 @@ def readAndParseData14xx(Dataport, configParameters):
             # Check that there have no errors with the byte buffer length
             if byteBufferLength < 0:
                 byteBufferLength = 0
-                
-            # word array to convert 4 bytes to a 32 bit number
-            word = [1, 2**8, 2**16, 2**24]
-            
+
             # Read the total packet length
             totalPacketLen = np.matmul(byteBuffer[12:12+4],word)
             # Check that all the packet has been read
             if (byteBufferLength >= totalPacketLen) and (byteBufferLength != 0):
                 magicOK = 1
-    #print(f"magicOK = {magicOK}")
-
+    
     # If magicOK is equal to 1 then process the message
     if magicOK:
-        # word array to convert 4 bytes to a 32 bit number
-        word = [1, 2**8, 2**16, 2**24]
-        
-        # Initialize the pointer index
-        idX = 0
-        
-        # Read the header
-        magicNumber = byteBuffer[idX:idX+8]
-        idX += 8
-        version = format(np.matmul(byteBuffer[idX:idX+4],word),'x')
-        idX += 4
-        totalPacketLen = np.matmul(byteBuffer[idX:idX+4],word)
-        idX += 4
-        platform = format(np.matmul(byteBuffer[idX:idX+4],word),'x')
-        idX += 4
-        frameNumber = np.matmul(byteBuffer[idX:idX+4],word)
-        idX += 4
-        timeCpuCycles = np.matmul(byteBuffer[idX:idX+4],word)
-        idX += 4
-        numDetectedObj = np.matmul(byteBuffer[idX:idX+4],word)
-        idX += 4
-        numTLVs = np.matmul(byteBuffer[idX:idX+4],word)
-        idX += 4
-        idX += 4
-        #print(f"magicNumber = {magicNumber} \t version = {version} \t totalPacketLen = {totalPacketLen} \t platform = {platform} \t frameNumber = {frameNumber} ")
-        #print(f"timeCpuCycles = {timeCpuCycles} \t\t numDetectedObj = {numDetectedObj} \t numTLVs = {numTLVs} \t\t idX = {idX}")
+        # Read the entire buffer
+        readNumBytes = byteBufferLength
+        print("readNumBytes: ", readNumBytes)
+        allBinData = byteBuffer.tobytes('C')
+        print("allBinData: ", allBinData[0], allBinData[1], allBinData[2], allBinData[3])
+        #fp.close()
 
-        # UNCOMMENT IN CASE OF SDK 2
-        #subFrameNumber = np.matmul(byteBuffer[idX:idX+4],word)
-        
-        
-        # Read the TLV messages
-        for tlvIdx in range(numTLVs):
+        # init local variables
+        totalBytesParsed = 0;
+        numFramesParsed = 0;
+
+        # parser_one_mmw_demo_output_packet extracts only one complete frame at a time
+        # so call this in a loop till end of file
+        while (totalBytesParsed < readNumBytes):
             
-            # word array to convert 4 bytes to a 32 bit number
-            word = [1, 2**8, 2**16, 2**24]
+            # parser_one_mmw_demo_output_packet function already prints the
+            # parsed data to stdio. So showcasing only saving the data to arrays 
+            # here for further custom processing
+            parser_result, \
+            headerStartIndex,  \
+            totalPacketNumBytes, \
+            numDetObj,  \
+            numTlv,  \
+            subFrameNumber,  \
+            detectedX_array,  \
+            detectedY_array,  \
+            detectedZ_array,  \
+            detectedV_array,  \
+            detectedRange_array,  \
+            detectedAzimuth_array,  \
+            detectedElevation_array,  \
+            detectedSNR_array,  \
+            detectedNoise_array = parser_one_mmw_demo_output_packet(allBinData[totalBytesParsed::1], readNumBytes-totalBytesParsed)
 
-            # Check the header of the TLV message
-            #print(f"byteBuffer[idX:idX+4] = {byteBuffer[idX:idX+4]}, word = {word}")
-            tlv_type = np.matmul(byteBuffer[idX:idX+4],word)
-            idX += 4
-            tlv_length = np.matmul(byteBuffer[idX:idX+4],word)
-            idX += 4
-            #print(f"tlv_type = {tlv_type} \t MMWDEMO_UART_MSG_DETECTED_POINTS = {MMWDEMO_UART_MSG_DETECTED_POINTS}")
-            # Read the data depending on the TLV message
-            if tlv_type == MMWDEMO_UART_MSG_DETECTED_POINTS:
-                            
-                # word array to convert 4 bytes to a 16 bit number
-                word = [1, 2**8]
-                tlv_numObj = np.matmul(byteBuffer[idX:idX+2],word)
-                idX += 2
-                tlv_xyzQFormat = 2**np.matmul(byteBuffer[idX:idX+2],word)
-                idX += 2
-                
-                # Initialize the arrays
-                rangeIdx = np.zeros(numDetectedObj,dtype = 'int16')
-                dopplerIdx = np.zeros(numDetectedObj,dtype = 'int16')
-                peakVal = np.zeros(numDetectedObj,dtype = 'int16')
-                x = np.zeros(numDetectedObj,dtype = 'int16')
-                y = np.zeros(numDetectedObj,dtype = 'int16')
-                z = np.zeros(numDetectedObj,dtype = 'int16')
-                #print(f"tlv_numObj = {tlv_numObj}")
-                for objectNum in range(numDetectedObj):
-                    
-                    # Read the data for each object
-                    rangeIdx[objectNum] =  np.matmul(byteBuffer[idX:idX+2],word)                    
-                    idX += 2
-                    dopplerIdx[objectNum] = np.matmul(byteBuffer[idX:idX+2],word)
-                    idX += 2                    
-                    peakVal[objectNum] = np.matmul(byteBuffer[idX:idX+2],word)
-                    idX += 2                    
-                    x[objectNum] = np.matmul(byteBuffer[idX:idX+2],word)
-                    idX += 2
-                    y[objectNum] = np.matmul(byteBuffer[idX:idX+2],word)
-                    idX += 2
-                    z[objectNum] = np.matmul(byteBuffer[idX:idX+2],word)
-                    idX += 2
-                    #print(f"rangeIdx[{objectNum}] = {rangeIdx[objectNum]} \t dopplerIdx[{objectNum}] = {dopplerIdx[objectNum]} \t peakVal[{objectNum}] = {peakVal[objectNum]} \t x[{objectNum}] = {x[objectNum]} \t y[{objectNum}] = {y[objectNum]} \t z[{objectNum}] = {z[objectNum]} \t")
+            # Check the parser result
+            print ("Parser result: ", parser_result)
+            if (parser_result == 0): 
+                totalBytesParsed += (headerStartIndex+totalPacketNumBytes)    
+                numFramesParsed+=1
+                print("totalBytesParsed: ", totalBytesParsed)
+                ##################################################################################
+                # TODO: use the arrays returned by above parser as needed. 
+                # For array dimensions, see help(parser_one_mmw_demo_output_packet)
+                # help(parser_one_mmw_demo_output_packet)
+                ##################################################################################
 
-                # Make the necessary corrections and calculate the rest of the data
-                rangeVal = rangeIdx * configParameters["rangeIdxToMeters"]
-                dopplerIdx[dopplerIdx > (configParameters["numDopplerBins"]/2 - 1)] = dopplerIdx[dopplerIdx > (configParameters["numDopplerBins"]/2 - 1)] - 65535
-                dopplerVal = dopplerIdx * configParameters["dopplerResolutionMps"]
-                #x[x > 32767] = x[x > 32767] - 65536
-                #y[y > 32767] = y[y > 32767] - 65536
-                #z[z > 32767] = z[z > 32767] - 65536
-                #print(f"tlv_xyzQFormat = {tlv_xyzQFormat} \t x = {x}")
-                #x = x / tlv_xyzQFormat
-                #y = y / tlv_xyzQFormat
-                #z = z / tlv_xyzQFormat
                 
-                # Store the data in the detObj dictionary
-                detObj = {"numObj": objectNum, "rangeIdx": rangeIdx, "range": rangeVal, "dopplerIdx": dopplerIdx, \
-                          "doppler": dopplerVal, "peakVal": peakVal, "x": x, "y": y, "z": z}
+                # For example, dump all S/W objects to a csv file
+                """
+                import csv
+                if (numFramesParsed == 1):
+                    democsvfile = open('mmw_demo_output.csv', 'w', newline='')                
+                    demoOutputWriter = csv.writer(democsvfile, delimiter=',',
+                                            quotechar='', quoting=csv.QUOTE_NONE)                                    
+                    demoOutputWriter.writerow(["frame","DetObj#","x","y","z","v","snr","noise"])            
                 
-                dataOK = 1             
+                for obj in range(numDetObj):
+                    demoOutputWriter.writerow([numFramesParsed-1, obj, detectedX_array[obj],\
+                                                detectedY_array[obj],\
+                                                detectedZ_array[obj],\
+                                                detectedV_array[obj],\
+                                                detectedSNR_array[obj],\
+                                                detectedNoise_array[obj]])
+                """
+                detObj = {"numObj": numDetObj, "range": detectedRange_array, \
+                           "x": detectedX_array, "y": detectedY_array, "z": detectedZ_array}
+            else: 
+                # error in parsing; exit the loop
+                print("error in parsing; exit the loop")
+                break
+
         
-  
-        # Remove already processed data
-        if idX > 0 and byteBufferLength > idX:
-            shiftSize = totalPacketLen
-               
-            byteBuffer[:byteBufferLength - shiftSize] = byteBuffer[shiftSize:byteBufferLength]
-            byteBuffer[byteBufferLength - shiftSize:] = np.zeros(len(byteBuffer[byteBufferLength - shiftSize:]),dtype = 'uint8')
-            byteBufferLength = byteBufferLength - shiftSize
-            
-            # Check that there are no errors with the buffer length
-            if byteBufferLength < 0:
-                byteBufferLength = 0
-                
+        shiftSize = totalPacketNumBytes            
+        byteBuffer[:byteBufferLength - shiftSize] = byteBuffer[shiftSize:byteBufferLength]
+        byteBuffer[byteBufferLength - shiftSize:] = np.zeros(len(byteBuffer[byteBufferLength - shiftSize:]),dtype = 'uint8')
+        byteBufferLength = byteBufferLength - shiftSize
+        
+        # Check that there are no errors with the buffer length
+        if byteBufferLength < 0:
+            byteBufferLength = 0
+        # All processing done; Exit
+        print("numFramesParsed: ", numFramesParsed)
 
     return dataOK, frameNumber, detObj
-
-# ------------------------------------------------------------------
 
 # Funtion to update the data and display in the plot
 def update():
@@ -298,7 +304,6 @@ def update():
     
     return dataOk
 
-
 # -------------------------    MAIN   -----------------------------------------  
 
 # Configurate the serial port
@@ -307,23 +312,6 @@ CLIport, Dataport = serialConfig(configFileName)
 # Get the configuration parameters from the configuration file
 configParameters = parseConfigFile(configFileName)
 
-# START QtAPPfor the plot
-"""
-app = QtGui.QApplication([])
-
-# Set the plot 
-pg.setConfigOption('background','w')
-win = pg.GraphicsWindow(title="2D scatter plot")
-p = win.addPlot()
-p.setXRange(-0.5,0.5)
-p.setYRange(0,1.5)
-p.setLabel('left',text = 'Y position (m)')
-p.setLabel('bottom', text= 'X position (m)')
-s = p.plot([],[],pen=None,symbol='o')
-
-win.show()
-app.exec_()
-"""
 #plt.axis([0, 10, 0, 1])
 #plt.show()
     
@@ -352,6 +340,9 @@ for i in range(20):
         Dataport.close()
         #win.close()
         break
+CLIport.write(('sensorStop\n').encode())
+CLIport.close()
+Dataport.close()
         
     
 
