@@ -35,6 +35,7 @@ import struct
 import math
 import binascii
 import codecs
+import numpy as np
 
 # definations for parser pass/fail
 TC_PASS   =  0
@@ -68,8 +69,10 @@ def getHex(data):
 
         @param data : 1-demension byte array
         @return     : 32-bit unsigned integer in hex
-    """     
-    return (binascii.hexlify(data[::-1]))
+    """         
+    #return (binascii.hexlify(data[::-1]))
+    word = [1, 2**8, 2**16, 2**24]
+    return np.matmul(data,word)
 
 def checkMagicPattern(data):
     """!
@@ -84,7 +87,7 @@ def checkMagicPattern(data):
         found = 1
     return (found)
           
-def parser_helper(data, readNumBytes):
+def parser_helper(data, readNumBytes,debug=False):
     """!
        This function is called by parser_one_mmw_demo_output_packet() function or application to read the input buffer, find the magic number, header location, the length of frame, the number of detected object and the number of TLV contained in this mmw demo output packet.
 
@@ -122,20 +125,20 @@ def parser_helper(data, readNumBytes):
         numTlv              = getUint32(data[headerStartIndex+32:headerStartIndex+36:1])
         subFrameNumber      = getUint32(data[headerStartIndex+36:headerStartIndex+40:1])
         
-     
-    print("headerStartIndex    = %d" % (headerStartIndex))
-    print("totalPacketNumBytes = %d" % (totalPacketNumBytes))
-    print("platform            = %s" % (platform)) 
-    print("frameNumber         = %d" % (frameNumber)) 
-    print("timeCpuCycles       = %d" % (timeCpuCycles))   
-    print("numDetObj           = %d" % (numDetObj)) 
-    print("numTlv              = %d" % (numTlv))
-    print("subFrameNumber      = %d" % (subFrameNumber))   
+    if(debug):
+        print("headerStartIndex    = %d" % (headerStartIndex))
+        print("totalPacketNumBytes = %d" % (totalPacketNumBytes))
+        print("platform            = %s" % (platform)) 
+        print("frameNumber         = %d" % (frameNumber)) 
+        print("timeCpuCycles       = %d" % (timeCpuCycles))   
+        print("numDetObj           = %d" % (numDetObj)) 
+        print("numTlv              = %d" % (numTlv))
+        print("subFrameNumber      = %d" % (subFrameNumber))   
                             
     return (headerStartIndex, totalPacketNumBytes, numDetObj, numTlv, subFrameNumber)
 
 
-def parser_one_mmw_demo_output_packet(data, readNumBytes):
+def parser_one_mmw_demo_output_packet(data, readNumBytes,debug=False):
     """!
        This function is called by application. Firstly it calls parser_helper() function to find the start location of the mmw demo output packet, then extract the contents from the output packet.
        Each invocation of this function handles only one frame at a time and user needs to manage looping around to parse data for multiple frames.
@@ -177,7 +180,7 @@ def parser_one_mmw_demo_output_packet(data, readNumBytes):
     result = TC_PASS
 
     # call parser_helper() function to find the output packet header start location and packet size 
-    (headerStartIndex, totalPacketNumBytes, numDetObj, numTlv, subFrameNumber) = parser_helper(data, readNumBytes)
+    (headerStartIndex, totalPacketNumBytes, numDetObj, numTlv, subFrameNumber) = parser_helper(data, readNumBytes, debug)
                          
     if headerStartIndex == -1:
         result = TC_FAIL
@@ -204,10 +207,10 @@ def parser_one_mmw_demo_output_packet(data, readNumBytes):
             tlvType    = getUint32(data[tlvStart+0:tlvStart+4:1])
             tlvLen     = getUint32(data[tlvStart+4:tlvStart+8:1])       
             offset = 8
-                    
-            print("The 1st TLV") 
-            print("    type %d" % (tlvType))
-            print("    len %d bytes" % (tlvLen))
+            if(debug):        
+                print("The 1st TLV") 
+                print("    type %d" % (tlvType))
+                print("    len %d bytes" % (tlvLen))
                                                     
             # the 1st TLV must be type 1
             if tlvType == 1 and tlvLen < totalPacketNumBytes:#MMWDEMO_UART_MSG_DETECTED_POINTS
@@ -267,10 +270,11 @@ def parser_one_mmw_demo_output_packet(data, readNumBytes):
             tlvType    = getUint32(data[tlvStart+0:tlvStart+4:1])
             tlvLen     = getUint32(data[tlvStart+4:tlvStart+8:1])      
             offset = 8
-                    
-            print("The 2nd TLV") 
-            print("    type %d" % (tlvType))
-            print("    len %d bytes" % (tlvLen))
+
+            if(debug):        
+                print("The 2nd TLV") 
+                print("    type %d" % (tlvType))
+                print("    len %d bytes" % (tlvLen))
                                                             
             if tlvType == 7: 
                 
@@ -293,11 +297,11 @@ def parser_one_mmw_demo_output_packet(data, readNumBytes):
                     detectedSNR_array.append(0)
                     detectedNoise_array.append(0)
             # end of if tlvType == 7
-           
-            print("                  x(m)         y(m)         z(m)        v(m/s)    Com0range(m)  azimuth(deg)  elevAngle(deg)  snr(0.1dB)    noise(0.1dB)")
-            for obj in range(numDetObj):
-                print("    obj%3d: %12f %12f %12f %12f %12f %12f %12d %12d %12d" % (obj, detectedX_array[obj], detectedY_array[obj], detectedZ_array[obj], detectedV_array[obj], detectedRange_array[obj], detectedAzimuth_array[obj], detectedElevAngle_array[obj], detectedSNR_array[obj], detectedNoise_array[obj]))
-            
+            if(debug):           
+                print("                  x(m)         y(m)         z(m)        v(m/s)    Com0range(m)  azimuth(deg)  elevAngle(deg)  snr(0.1dB)    noise(0.1dB)")
+                for obj in range(numDetObj):
+                    print("    obj%3d: %12f %12f %12f %12f %12f %12f %12d %12d %12d" % (obj, detectedX_array[obj], detectedY_array[obj], detectedZ_array[obj], detectedV_array[obj], detectedRange_array[obj], detectedAzimuth_array[obj], detectedElevAngle_array[obj], detectedSNR_array[obj], detectedNoise_array[obj]))
+                
     return (result, headerStartIndex, totalPacketNumBytes, numDetObj, numTlv, subFrameNumber, detectedX_array, detectedY_array, detectedZ_array, detectedV_array, detectedRange_array, detectedAzimuth_array, detectedElevAngle_array, detectedSNR_array, detectedNoise_array)
 
 

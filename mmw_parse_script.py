@@ -47,12 +47,17 @@ import time
 import numpy as np
 import os
 import sys
-import matplotlib.pyplot as plt
+from PyQt5 import QtWidgets, QtCore
+import pyqtgraph as pg
+from pyqtgraph.Qt import QtGui
 # import the parser function 
 from parser_mmw_demo import parser_one_mmw_demo_output_packet
 
 # Change the configuration file name
 configFileName = 'xwr68xxconfig.cfg'
+
+# Change the debug variable to use print()
+DEBUG = False
 
 # Constants
 maxBufferSize = 2**15;
@@ -62,6 +67,9 @@ byteBuffer = np.zeros(2**15,dtype = 'uint8')
 byteBufferLength = 0;
 maxBufferSize = 2**15;
 magicWord = [2, 1, 4, 3, 6, 5, 8, 7]
+detObj = {}  
+frameData = {}    
+currentIndex = 0
 # word array to convert 4 bytes to a 32 bit number
 word = [1, 2**8, 2**16, 2**24]
 
@@ -199,10 +207,11 @@ def readAndParseData14xx(Dataport, configParameters):
     if magicOK:
         # Read the entire buffer
         readNumBytes = byteBufferLength
-        print("readNumBytes: ", readNumBytes)
-        allBinData = byteBuffer.tobytes('C')
-        print("allBinData: ", allBinData[0], allBinData[1], allBinData[2], allBinData[3])
-        #fp.close()
+        if(DEBUG):
+            print("readNumBytes: ", readNumBytes)
+        allBinData = byteBuffer
+        if(DEBUG):
+            print("allBinData: ", allBinData[0], allBinData[1], allBinData[2], allBinData[3])
 
         # init local variables
         totalBytesParsed = 0;
@@ -210,63 +219,64 @@ def readAndParseData14xx(Dataport, configParameters):
 
         # parser_one_mmw_demo_output_packet extracts only one complete frame at a time
         # so call this in a loop till end of file
-        while (totalBytesParsed < readNumBytes):
-            
-            # parser_one_mmw_demo_output_packet function already prints the
-            # parsed data to stdio. So showcasing only saving the data to arrays 
-            # here for further custom processing
-            parser_result, \
-            headerStartIndex,  \
-            totalPacketNumBytes, \
-            numDetObj,  \
-            numTlv,  \
-            subFrameNumber,  \
-            detectedX_array,  \
-            detectedY_array,  \
-            detectedZ_array,  \
-            detectedV_array,  \
-            detectedRange_array,  \
-            detectedAzimuth_array,  \
-            detectedElevation_array,  \
-            detectedSNR_array,  \
-            detectedNoise_array = parser_one_mmw_demo_output_packet(allBinData[totalBytesParsed::1], readNumBytes-totalBytesParsed)
+        #             
+        # parser_one_mmw_demo_output_packet function already prints the
+        # parsed data to stdio. So showcasing only saving the data to arrays 
+        # here for further custom processing
+        parser_result, \
+        headerStartIndex,  \
+        totalPacketNumBytes, \
+        numDetObj,  \
+        numTlv,  \
+        subFrameNumber,  \
+        detectedX_array,  \
+        detectedY_array,  \
+        detectedZ_array,  \
+        detectedV_array,  \
+        detectedRange_array,  \
+        detectedAzimuth_array,  \
+        detectedElevation_array,  \
+        detectedSNR_array,  \
+        detectedNoise_array = parser_one_mmw_demo_output_packet(allBinData[totalBytesParsed::1], readNumBytes-totalBytesParsed,DEBUG)
 
-            # Check the parser result
+        # Check the parser result
+        if(DEBUG):
             print ("Parser result: ", parser_result)
-            if (parser_result == 0): 
-                totalBytesParsed += (headerStartIndex+totalPacketNumBytes)    
-                numFramesParsed+=1
+        if (parser_result == 0): 
+            totalBytesParsed += (headerStartIndex+totalPacketNumBytes)    
+            numFramesParsed+=1
+            if(DEBUG):
                 print("totalBytesParsed: ", totalBytesParsed)
-                ##################################################################################
-                # TODO: use the arrays returned by above parser as needed. 
-                # For array dimensions, see help(parser_one_mmw_demo_output_packet)
-                # help(parser_one_mmw_demo_output_packet)
-                ##################################################################################
+            ##################################################################################
+            # TODO: use the arrays returned by above parser as needed. 
+            # For array dimensions, see help(parser_one_mmw_demo_output_packet)
+            # help(parser_one_mmw_demo_output_packet)
+            ##################################################################################
 
-                
-                # For example, dump all S/W objects to a csv file
-                """
-                import csv
-                if (numFramesParsed == 1):
-                    democsvfile = open('mmw_demo_output.csv', 'w', newline='')                
-                    demoOutputWriter = csv.writer(democsvfile, delimiter=',',
-                                            quotechar='', quoting=csv.QUOTE_NONE)                                    
-                    demoOutputWriter.writerow(["frame","DetObj#","x","y","z","v","snr","noise"])            
-                
-                for obj in range(numDetObj):
-                    demoOutputWriter.writerow([numFramesParsed-1, obj, detectedX_array[obj],\
-                                                detectedY_array[obj],\
-                                                detectedZ_array[obj],\
-                                                detectedV_array[obj],\
-                                                detectedSNR_array[obj],\
-                                                detectedNoise_array[obj]])
-                """
-                detObj = {"numObj": numDetObj, "range": detectedRange_array, \
-                           "x": detectedX_array, "y": detectedY_array, "z": detectedZ_array}
-            else: 
-                # error in parsing; exit the loop
-                print("error in parsing; exit the loop")
-                break
+            
+            # For example, dump all S/W objects to a csv file
+            """
+            import csv
+            if (numFramesParsed == 1):
+                democsvfile = open('mmw_demo_output.csv', 'w', newline='')                
+                demoOutputWriter = csv.writer(democsvfile, delimiter=',',
+                                        quotechar='', quoting=csv.QUOTE_NONE)                                    
+                demoOutputWriter.writerow(["frame","DetObj#","x","y","z","v","snr","noise"])            
+            
+            for obj in range(numDetObj):
+                demoOutputWriter.writerow([numFramesParsed-1, obj, detectedX_array[obj],\
+                                            detectedY_array[obj],\
+                                            detectedZ_array[obj],\
+                                            detectedV_array[obj],\
+                                            detectedSNR_array[obj],\
+                                            detectedNoise_array[obj]])
+            """
+            detObj = {"numObj": numDetObj, "range": detectedRange_array, \
+                        "x": detectedX_array, "y": detectedY_array, "z": detectedZ_array}
+            dataOK = 1 
+        else: 
+            # error in parsing; exit the loop
+            print("error in parsing this frame; continue")
 
         
         shiftSize = totalPacketNumBytes            
@@ -278,75 +288,90 @@ def readAndParseData14xx(Dataport, configParameters):
         if byteBufferLength < 0:
             byteBufferLength = 0
         # All processing done; Exit
-        print("numFramesParsed: ", numFramesParsed)
+        if(DEBUG):
+            print("numFramesParsed: ", numFramesParsed)
 
     return dataOK, frameNumber, detObj
 
-# Funtion to update the data and display in the plot
-def update():
-     
-    dataOk = 0
-    global detObj
-    x = []
-    y = []
-      
-    # Read and parse the received data
-    dataOk, frameNumber, detObj = readAndParseData14xx(Dataport, configParameters)
-    #print(f"dataOK = {dataOk}")
-    if dataOk and len(detObj["x"]) > 0:
-        #print(detObj)
-        x = -detObj["x"]
-        y = detObj["y"]
-        plt.scatter(x,y)
-        plt.pause(0.05)
-        #s.setData(x,y)
-        #QtGui.QApplication.processEvents()
-    
-    return dataOk
 
-# -------------------------    MAIN   -----------------------------------------  
+class MyWidget(pg.GraphicsWindow):
 
-# Configurate the serial port
-CLIport, Dataport = serialConfig(configFileName)
+    def __init__(self, parent=None):
+        super().__init__(parent=parent)
 
-# Get the configuration parameters from the configuration file
-configParameters = parseConfigFile(configFileName)
+        self.mainLayout = QtWidgets.QVBoxLayout()
+        self.setLayout(self.mainLayout)
 
-#plt.axis([0, 10, 0, 1])
-#plt.show()
-    
-   
-# Main loop 
-detObj = {}  
-frameData = {}    
-currentIndex = 0
-for i in range(20):
-    try:
-        # Update the data and check if the data is okay
-        dataOk = update()
+        self.timer = QtCore.QTimer(self)
+        self.timer.setInterval(100) # in milliseconds
+        self.timer.start()
+        self.timer.timeout.connect(self.onNewData)
+
+        self.plotItem = self.addPlot(title="Lidar points")
+
+        self.plotDataItem = self.plotItem.plot([], pen=None, 
+            symbolBrush=(255,0,0), symbolSize=5, symbolPen=None)
 
 
-        if dataOk:
+    def setData(self, x, y):
+        self.plotDataItem.setData(x, y)
+
+    # Funtion to update the data and display in the plot
+    def update(self):
+        
+        dataOk = 0
+        global detObj
+        x = []
+        y = []
+        
+        # Read and parse the received data
+        dataOk, frameNumber, detObj = readAndParseData14xx(Dataport, configParameters)
+        if dataOk and len(detObj["x"]) > 0:
+            #print(detObj)
+            x = detObj["x"]
+            y = detObj["y"]
+
+        return dataOk, x, y
+
+
+    def onNewData(self):
+        
+        # Update the data and check if the data is okay        
+        dataOk,newx,newy = self.update()
+
+        #if dataOk:
             # Store the current frame into frameData
-            frameData[currentIndex] = detObj
-            currentIndex += 1
+            #frameData[currentIndex] = detObj
+            #currentIndex += 1
         
-        time.sleep(0.033) # Sampling frequency of 30 Hz
-        
-    # Stop the program and close everything if Ctrl + c is pressed
-    except KeyboardInterrupt:
-        CLIport.write(('sensorStop\n').encode())
-        CLIport.close()
-        Dataport.close()
-        #win.close()
-        break
-CLIport.write(('sensorStop\n').encode())
-CLIport.close()
-Dataport.close()
-        
-    
+        x = newx
+        y = newy
+        self.setData(x, y)
+
+
+def main():        
+    # Configurate the serial port
+    CLIport, Dataport = serialConfig(configFileName)
+
+    # Get the configuration parameters from the configuration file
+    global configParameters 
+    configParameters = parseConfigFile(configFileName)
+
+    app = QtWidgets.QApplication([])
+
+    pg.setConfigOptions(antialias=False) # True seems to work as well
+
+    win = MyWidget()
+    win.show()
+    win.resize(800,600) 
+    win.raise_()
+    app.exec_()
+    CLIport.write(('sensorStop\n').encode())
+    CLIport.close()
+    Dataport.close()
 
 
 
-
+if __name__ == "__main__":
+    main()
 
